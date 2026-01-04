@@ -36,6 +36,11 @@ class VannaService:
             class_=AsyncSession,
             expire_on_commit=False
         )
+        
+        # ===== 训练 Vanna AI 模型 =====
+        # TODO: 集成真实的 Vanna.ai API 进行训练
+        # 这里为训练逻辑预留接口
+        await self._train_ai_models()
 
     async def generate_sql(self, question: str, context: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """
@@ -168,7 +173,8 @@ class VannaService:
             filter_conditions = []
             for key, value in request.filters.items():
                 if isinstance(value, list):
-                    filter_conditions.append(f"{key} IN ({', '.join(f\"'{v}'\" for v in value)})")
+                    values_str = ', '.join([f"'{v}'" for v in value])
+                    filter_conditions.append(f"{key} IN ({values_str})")
                 else:
                     filter_conditions.append(f"{key} = '{value}'")
             filters = " AND " + " AND ".join(filter_conditions)
@@ -254,6 +260,62 @@ class VannaService:
             }
         ]
 
+    async def _train_ai_models(self):
+        """
+        训练 Vanna AI 模型
+        
+        为 AI 提供数据库结构知识：
+        1. 训练销售分析视图 (view_bi_sales_analysis)
+        2. 训练财务监控视图 (view_bi_finance_monitor)
+        3. 训练库存预警视图 (view_bi_inventory_alert)
+        4. 训练采购分析视图 (view_bi_purchase_analysis)
+        """
+        print("🤖 开始训练 Vanna AI 模型...")
+        
+        # TODO: 实际集成 Vanna.ai 时，取消下面的注释
+        # 训练销售分析视图
+        # await vanna.train(
+        #     ddl="""
+        #     CREATE VIEW view_bi_sales_analysis AS ...
+        #     字段说明:
+        #     - company_name: 分公司名称
+        #     - salesman_name: 业务员姓名
+        #     - partner_name: 客户名称
+        #     - region: 客户地区 (华东/华北/华南等)
+        #     - product_name: 商品名称
+        #     - category: 商品分类
+        #     - sales_amount: 销售额
+        #     - gross_profit: 毛利
+        #     - gross_profit_rate: 毛利率
+        #     """
+        # )
+        
+        # 训练财务监控视图
+        # await vanna.train(
+        #     ddl="""
+        #     CREATE VIEW view_bi_finance_monitor AS ...
+        #     字段说明:
+        #     - record_type: 记录类型 (receivable应收/payable应付/expense费用)
+        #     - trans_amount: 交易金额
+        #     - current_balance: 当前余额
+        #     - expense_category: 费用科目
+        #     """
+        # )
+        
+        # 训练库存预警视图
+        # await vanna.train(
+        #     ddl="""
+        #     CREATE VIEW view_bi_inventory_alert AS ...
+        #     字段说明:
+        #     - product_name: 商品名称
+        #     - current_stock: 当前库存
+        #     - min_stock: 最低库存预警线
+        #     - stock_status: 库存状态 (缺货/库存不足/正常/库存充足)
+        #     """
+        # )
+        
+        print("✅ Vanna AI 模型训练完成 (当前为模拟模式)")
+
     def _mock_generate_sql(self, question: str, context: Dict[str, Any] = None) -> str:
         """
         模拟 SQL 生成 (临时实现)
@@ -266,9 +328,10 @@ class VannaService:
             return """
             SELECT
                 DATE_TRUNC('month', order_date) as month,
-                SUM(total_amount) as total_sales,
-                COUNT(*) as order_count
-            FROM view_sales_analysis
+                SUM(sales_amount) as total_sales,
+                SUM(gross_profit) as total_profit,
+                COUNT(DISTINCT order_id) as order_count
+            FROM view_bi_sales_analysis
             WHERE order_date >= CURRENT_DATE - INTERVAL '12 months'
             GROUP BY DATE_TRUNC('month', order_date)
             ORDER BY month DESC
@@ -279,16 +342,37 @@ class VannaService:
             SELECT
                 product_name,
                 current_stock,
+                min_stock,
                 warehouse_name,
-                last_updated
-            FROM view_inventory_snapshot
-            WHERE current_stock > 0
-            ORDER BY current_stock DESC
+                stock_status
+            FROM view_bi_inventory_alert
+            WHERE current_stock < min_stock OR current_stock <= 0
+            ORDER BY 
+                CASE stock_status
+                    WHEN '缺货' THEN 1
+                    WHEN '库存不足' THEN 2
+                    ELSE 3
+                END
+            LIMIT 20
+            """
+
+        elif "费用" in question_lower or "应收" in question_lower or "应付" in question_lower:
+            return """
+            SELECT
+                company_name,
+                dept_name,
+                record_type,
+                expense_category,
+                SUM(trans_amount) as total_amount
+            FROM view_bi_finance_monitor
+            WHERE trans_date >= CURRENT_DATE - INTERVAL '3 months'
+            GROUP BY company_name, dept_name, record_type, expense_category
+            ORDER BY total_amount DESC
             """
 
         else:
             return """
-            SELECT * FROM view_sales_analysis LIMIT 100
+            SELECT * FROM view_bi_sales_analysis LIMIT 100
             """
 
 # 创建全局服务实例
