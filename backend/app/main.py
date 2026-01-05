@@ -4,7 +4,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import chat, report, dashboard
+from app.api.v1.endpoints import chat, report, dashboard, auth, business
 from app.core.config import settings
 
 # 导入数据库模型（可在 API 路由中使用）
@@ -36,6 +36,8 @@ app.add_middleware(
 )
 
 # 注册路由
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(business.router, prefix="/api/v1/business", tags=["business"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 app.include_router(report.router, prefix="/api/v1/report", tags=["report"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])

@@ -1,0 +1,13 @@
+column_name,data_type
+id,integer
+order_no,character varying
+type,USER-DEFINED
+order_date,date
+status,USER-DEFINED
+salesman_id,integer
+partner_id,integer
+warehouse_id,integer
+total_amount,numeric
+remark,text
+created_at,timestamp without time zone
+updated_at,timestamp without time zone

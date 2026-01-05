@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useThemeStore } from '@/stores/theme';
 import { User, Bell, Lock, Brush, FolderOpened, Setting, Check } from '@element-plus/icons-vue';
 
-const theme = ref<'light' | 'dark'>('light');
+const themeStore = useThemeStore();
+const theme = computed(() => themeStore.theme);
 const activeSection = ref('profile');
 
 const settings = ref({
@@ -55,7 +57,7 @@ const handleSave = () => {
 };
 
 const toggleTheme = () => {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark';
+  themeStore.toggleTheme();
 };
 </script>
 
@@ -260,7 +262,7 @@ const toggleTheme = () => {
               <label :class="['block text-sm font-medium mb-3', textSecondary]">主题模式</label>
               <div class="grid grid-cols-2 gap-3">
                 <button
-                  @click="theme = 'dark'"
+                  @click="themeStore.setTheme('dark')"
                   :class="[
                     'p-4 rounded-lg border-2 transition-all',
                     theme === 'dark'
@@ -272,7 +274,7 @@ const toggleTheme = () => {
                   <p :class="['text-sm text-center font-medium', textPrimary]">深色模式</p>
                 </button>
                 <button
-                  @click="theme = 'light'"
+                  @click="themeStore.setTheme('light')"
                   :class="[
                     'p-4 rounded-lg border-2 transition-all',
                     theme === 'light'

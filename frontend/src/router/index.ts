@@ -1,10 +1,20 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import { ElMessage } from 'element-plus'
 
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
     redirect: '/dashboard'
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/Login/index.vue'),
+    meta: {
+      title: '用户登录',
+      requiresAuth: false
+    }
   },
   {
     path: '/dashboard',
@@ -34,6 +44,15 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/operations',
+    name: 'Operations',
+    component: () => import('@/views/Operations/index.vue'),
+    meta: {
+      title: '业务操作',
+      icon: 'operations'
+    }
+  },
+  {
     path: '/settings',
     name: 'Settings',
     component: () => import('@/views/Settings/index.vue'),
@@ -55,7 +74,21 @@ router.beforeEach((to, from, next) => {
   if (to.meta.title) {
     document.title = `${to.meta.title} - 进销存智能 BI 系统`
   }
-  next()
+
+  // 检查是否需要登录
+  const token = localStorage.getItem('access_token')
+  const requiresAuth = to.meta.requiresAuth !== false // 默认需要认证
+
+  if (requiresAuth && !token) {
+    // 需要认证但没有 token，跳转到登录页
+    ElMessage.warning('请先登录')
+    next({ path: '/login', query: { redirect: to.fullPath } })
+  } else if (to.path === '/login' && token) {
+    // 已登录用户访问登录页，跳转到首页
+    next('/dashboard')
+  } else {
+    next()
+  }
 })
 
 export default router

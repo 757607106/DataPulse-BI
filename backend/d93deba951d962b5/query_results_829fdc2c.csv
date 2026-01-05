@@ -1,0 +1,8 @@
+column_name,data_type
+id,integer
+order_id,integer
+product_id,integer
+quantity,numeric
+price,numeric
+subtotal,numeric
+remark,character varying

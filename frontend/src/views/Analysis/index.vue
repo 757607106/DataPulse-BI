@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue';
+import { useThemeStore } from '@/stores/theme';
 import { Promotion, TrendCharts, PieChart, MagicStick, ChatDotRound } from '@element-plus/icons-vue';
 
 interface Message {
@@ -10,7 +11,8 @@ interface Message {
   hasChart?: boolean;
 }
 
-const theme = ref<'light' | 'dark'>('light');
+const themeStore = useThemeStore();
+const theme = computed(() => themeStore.theme);
 
 const suggestedQuestions = [
   { icon: TrendCharts, text: '本月销售趋势如何？', color: '#06B6D4' },

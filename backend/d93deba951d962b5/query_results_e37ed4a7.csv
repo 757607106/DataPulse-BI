@@ -1,0 +1,6 @@
+column_name,data_type
+id,integer
+name,character varying
+company_name,character varying
+parent_id,integer
+created_at,timestamp without time zone

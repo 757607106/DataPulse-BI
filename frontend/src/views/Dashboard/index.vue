@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { ElMessage } from 'element-plus';
 import { 
   Calendar,
   Download, 
@@ -19,6 +20,9 @@ import {
 } from '@element-plus/icons-vue';
 import BaseChart from '@/components/Charts/BaseChart.vue';
 import type { EChartsOption } from 'echarts';
+import { getDashboardData } from '@/api/dashboard';
+import type { DashboardOverview, InventoryAlert } from '@/types/dashboard';
+import { useThemeStore } from '@/stores/theme';
 
 // --- Types ---
 type DateRange = '今日' | '本周' | '本月' | '本季度';
@@ -200,7 +204,8 @@ const costDistribution = [
 ];
 
 // --- State ---
-const theme = ref('light'); // Default to light, can be extended to be reactive from a store
+const themeStore = useThemeStore();
+const theme = computed(() => themeStore.theme);
 const dateRange = ref<DateRange>('本月');
 const isRefreshing = ref(false);
 const searchTerm = ref('');
@@ -208,10 +213,74 @@ const sortBy = ref<SortField>('amount');
 const sortOrder = ref<SortOrder>('desc');
 const selectedItems = ref<number[]>([]);
 
+// API 数据状态
+const loading = ref(false);
+const dashboardData = ref<DashboardOverview | null>(null);
+const error = ref<string | null>(null);
+
 // --- Computed Data ---
-const kpiData = computed(() => generateKPIData(dateRange.value));
-const salesData = computed(() => generateMonthlySales(dateRange.value));
-const inventoryData = computed(() => generateInventoryAlerts(dateRange.value));
+// 使用 API 数据或后备 Mock 数据
+const kpiData = computed(() => {
+  if (dashboardData.value) {
+    const kpi = dashboardData.value.kpi;
+    return {
+      sales: { 
+        value: kpi.total_sales, 
+        change: kpi.gross_profit_rate || 0, 
+        data: [28, 29, 30, 31, 30, 32, 31, 33, 32, 34, 33, 32],
+        accentColor: '#06B6D4'
+      },
+      purchase: { 
+        value: kpi.total_sales - kpi.gross_profit, 
+        change: 6.2, 
+        data: [19, 20, 21, 20, 22, 21, 23, 22, 21, 22, 21, 21],
+        accentColor: '#10B981'
+      },
+      inventory: { 
+        value: dashboardData.value.finance_status.total_receivable + dashboardData.value.finance_status.total_payable, 
+        change: -0.5, 
+        data: [125, 125, 124, 125, 124, 125, 125, 124, 125, 124, 125, 124],
+        accentColor: '#3B82F6'
+      },
+      alerts: { 
+        value: dashboardData.value.inventory_alerts.length, 
+        change: 2, 
+        data: [3, 3, 4, 3, 4, 3, 4, 4, 5, 4, 5, 5],
+        accentColor: '#F59E0B'
+      },
+    };
+  }
+  return generateKPIData(dateRange.value);
+});
+
+const salesData = computed(() => {
+  if (dashboardData.value && dashboardData.value.trends.length > 0) {
+    return dashboardData.value.trends.map(t => ({
+      month: t.date.substring(5), // 取 MM-DD
+      sales: t.sales,
+      cost: t.sales - t.profit,
+      profit: t.profit
+    }));
+  }
+  return generateMonthlySales(dateRange.value);
+});
+
+const inventoryData = computed(() => {
+  if (dashboardData.value && dashboardData.value.inventory_alerts.length > 0) {
+    return dashboardData.value.inventory_alerts.map((alert, index) => ({
+      id: index + 1,
+      product: alert.product_name,
+      sku: `SKU-${index + 1}`,
+      stock: alert.current_stock,
+      safeStock: alert.min_stock || 100,
+      status: alert.stock_status,
+      severity: alert.current_stock === 0 ? 'high' : alert.current_stock < (alert.min_stock || 100) * 0.5 ? 'medium' : 'low',
+      value: alert.current_stock * 100 // 简化计算
+    }));
+  }
+  return generateInventoryAlerts(dateRange.value);
+});
+
 const topProductsData = computed(() => generateTopProducts(dateRange.value));
 
 const filteredInventory = computed(() => {
@@ -246,13 +315,34 @@ const gridColor = computed(() => theme.value === 'dark' ? '#334155' : '#E5E7EB')
 const axisColor = computed(() => theme.value === 'dark' ? '#94A3B8' : '#6B7280');
 
 // --- Methods ---
-const handleRefresh = () => {
+/**
+ * 加载 Dashboard 数据
+ */
+const loadDashboardData = async () => {
+  loading.value = true;
+  error.value = null;
+  
+  try {
+    const data = await getDashboardData();
+    dashboardData.value = data;
+    ElMessage.success('数据加载成功');
+  } catch (err: any) {
+    error.value = err.message || '数据加载失败';
+    ElMessage.error(`数据加载失败: ${error.value}`);
+    console.error('Dashboard data loading error:', err);
+    // 失败时使用 Mock 数据
+  } finally {
+    loading.value = false;
+  }
+};
+
+const handleRefresh = async () => {
   isRefreshing.value = true;
-  setTimeout(() => {
+  try {
+    await loadDashboardData();
+  } finally {
     isRefreshing.value = false;
-    const now = new Date().toLocaleTimeString('zh-CN');
-    alert(`数据已刷新！\n刷新时间: ${now}\n数据范围: ${dateRange.value}`);
-  }, 1000);
+  }
 };
 
 const handleExport = () => {
@@ -446,10 +536,41 @@ const costDistributionOption = computed<EChartsOption>(() => ({
     }
   ]
 }));
+
+// --- 生命周期 ---
+onMounted(() => {
+  // 组件加载时获取数据
+  loadDashboardData();
+});
 </script>
 
 <template>
   <div class="p-4 sm:p-6 lg:p-8 max-w-[1920px] mx-auto">
+    <!-- Loading 状态 -->
+    <div v-if="loading" class="flex items-center justify-center h-[60vh]">
+      <div class="text-center">
+        <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-cyan-500 mx-auto mb-4"></div>
+        <p :class="['text-lg font-medium', textPrimary]">正在加载数据...</p>
+      </div>
+    </div>
+
+    <!-- 错误状态 -->
+    <div v-else-if="error && !dashboardData" class="flex items-center justify-center h-[60vh]">
+      <div class="text-center">
+        <el-icon :size="48" class="text-red-500 mb-4"><Warning /></el-icon>
+        <p class="text-lg font-medium text-red-600 mb-4">数据加载失败</p>
+        <p :class="['text-sm mb-6', textSecondary]">{{ error }}</p>
+        <button
+          @click="loadDashboardData"
+          class="px-6 py-3 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg font-medium transition-all"
+        >
+          重试
+        </button>
+      </div>
+    </div>
+
+    <!-- 主内容 -->
+    <div v-else>
     <!-- Header with Actions -->
     <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 lg:mb-8">
       <div class="flex-shrink-0">
@@ -901,6 +1022,7 @@ const costDistributionOption = computed<EChartsOption>(() => ({
         </div>
       </div>
     </div>
+    </div><!-- 主内容 end -->
   </div>
 </template>
 

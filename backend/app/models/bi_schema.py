@@ -50,6 +50,50 @@ class FinanceRecordType(str, PyEnum):
 
 # ==================== 维度表 ====================
 
+class SysUser(Base):
+    """用户表 - 用于JWT认证"""
+    __tablename__ = "sys_user"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+        comment="用户ID"
+    )
+    username: Mapped[str] = mapped_column(
+        String(50),
+        unique=True,
+        nullable=False,
+        index=True,
+        comment="用户名"
+    )
+    hashed_password: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        comment="哈希密码"
+    )
+    role: Mapped[str] = mapped_column(
+        String(20),
+        default="user",
+        comment="角色：admin管理员/user普通用户"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        default=True,
+        comment="是否激活"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.now,
+        comment="创建时间"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.now,
+        onupdate=datetime.now,
+        comment="更新时间"
+    )
+
+
 class SysDepartment(Base):
     """组织架构维度表 - 支持分公司和部门两级结构"""
     __tablename__ = "sys_department"

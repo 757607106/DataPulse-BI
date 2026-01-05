@@ -9,9 +9,11 @@ asyncpg==0.29.0
 psycopg2-binary==2.9.9
 alembic==1.13.1
 
-# AI 相关 (Vanna)
-vanna[all]==0.5.5
-openai==1.12.0
+# AI 相关 (Vanna 2.0)
+vanna>=2.0.0
+openai>=2.14.0
+dashscope==1.14.1
+pgvector==0.2.4
 
 # Redis 缓存
 redis[hiredis]==5.0.1
@@ -24,6 +26,7 @@ python-multipart==0.0.6
 # 数据处理
 pandas==2.1.4
 openpyxl==3.1.2
+faker==22.0.0
 
 # HTTP 客户端
 httpx==0.25.2

@@ -1,0 +1,15 @@
+table_name
+sys_user
+sys_department
+sys_employee
+base_warehouse
+inv_current_stock
+base_product
+biz_order
+base_partner
+fact_finance
+biz_order_item
+view_bi_sales_analysis
+view_bi_finance_monitor
+view_bi_inventory_alert
+view_bi_purchase_analysis

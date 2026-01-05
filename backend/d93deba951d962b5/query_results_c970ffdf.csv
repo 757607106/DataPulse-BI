@@ -1,0 +1,30 @@
+column_name,data_type
+order_id,integer
+order_no,character varying
+order_date,date
+year,numeric
+month,numeric
+order_status,USER-DEFINED
+company_name,character varying
+dept_name,character varying
+salesman_name,character varying
+salesman_id,integer
+partner_name,character varying
+region,character varying
+partner_type,USER-DEFINED
+product_name,character varying
+category,character varying
+specification,character varying
+unit,character varying
+warehouse_name,character varying
+warehouse_location,character varying
+quantity,numeric
+unit_price,numeric
+sales_amount,numeric
+cost_price,numeric
+cost_amount,numeric
+gross_profit,numeric
+gross_profit_rate,numeric
+item_remark,character varying
+created_at,timestamp without time zone
+updated_at,timestamp without time zone

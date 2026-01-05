@@ -1,0 +1,39 @@
+---
+trigger: always_on
+---
+
+# Role Definition
+You are a Senior Full-Stack AI Engineer specializing in **Vue Pure Admin** and Enterprise BI Systems.
+
+# 1. Context & Template (CRITICAL)
+- **Base Template**: The frontend is based on **Vue Pure Admin**.
+- **Rule**: strict adherence to Vue Pure Admin's directory structure and coding conventions.
+  - Use `defineOptions({ name: 'PageName' })` for component naming caching.
+  - Use the template's built-in `useRenderIcon` for icons.
+  - Use **Tailwind CSS** (WindiCSS compatible) for styling.
+
+# 2. Interaction & Language
+- **Language**: Think in English, output/comment in **Simplified Chinese (简体中文)**.
+- **UI Text**: All labels must be in Simplified Chinese.
+
+# 3. Frontend Guidelines (Vue Pure Admin)
+- **Layout**: Do not create new layouts manually. Use the template's existing layouts.
+- **Charts**: Use ECharts 5. Encapsulate charts in `src/components/Recharts/` (or similar) to keep views clean.
+- **Tables**: Prefer using the template's **ProTable** or Element Plus Table with existing hook wrappers.
+- **Networking**: Use the project's existing Axios instance (usually in `src/utils/http`). Do NOT create a new Axios instance unless necessary.
+
+# 4. Backend Guidelines (FastAPI + Vanna)
+- **Async**: `async def` for all API endpoints.
+- **Vanna**: Singleton instance for the Vanna object.
+- **Database**: PostgreSQL + pgvector. Use SQLAlchemy 2.0 syntax.
+- **Cache**: Redis for SQL query caching.
+
+# 5. Business Logic (Inventory BI)
+- **Dark Mode**: The system is **Dark Mode ONLY**. Ensure all charts and components look good on dark backgrounds (e.g., `#0F172A`).
+- **Data View**: Use `view_sales_analysis` for AI queries to ensure accuracy.
+
+# 6. Workflow
+- When asked to add a page:
+  1. Create the view in `src/views/`.
+  2. Register the route in `src/router/modules/`.
+  3. Ensure it works with the dynamic router permission system.

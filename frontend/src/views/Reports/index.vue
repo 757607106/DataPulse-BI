@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue';
+import { useThemeStore } from '@/stores/theme';
 import { Document, Download, View, Calendar, Filter, Plus, Search, Close, ChatDotRound, Promotion, DataAnalysis } from '@element-plus/icons-vue';
 
 // 报表数据类型
@@ -60,7 +61,8 @@ interface Message {
   timestamp: Date;
 }
 
-const theme = ref<'light' | 'dark'>('light');
+const themeStore = useThemeStore();
+const theme = computed(() => themeStore.theme);
 
 const mockReports: Report[] = [
   {

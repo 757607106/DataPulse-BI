@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres123@localhost:5432/inventory_bi"
     # 同步数据库连接（用于初始化和迁移）
     database_url_sync: str = "postgresql+psycopg2://postgres:postgres123@localhost:5432/inventory_bi"
+    
+    # Vanna 所需的数据库连接详情
+    database_host: str = "localhost"
+    database_port: str = "5432"
+    database_name: str = "inventory_bi"
+    database_user: str = "postgres"
+    database_password: str = "postgres123"
 
     # Redis 配置
     redis_url: str = "redis://localhost:6379/0"

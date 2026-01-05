@@ -25,9 +25,11 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
+from app.core.security import get_password_hash
 from app.models.bi_schema import (
     Base,
     # 维度表
+    SysUser,
     SysDepartment, SysEmployee, BasePartner, BaseWarehouse, BaseProduct,
     # 事实表
     BizOrder, BizOrderItem, FactFinance, InvCurrentStock,
@@ -153,6 +155,29 @@ def _create_views_with_sqlalchemy(engine, views_sql_path):
 def populate_dimensions(session):
     """步骤3: 填充基础维度数据"""
     print_step(3, "填充基础维度数据")
+    
+    # 3.0 创建测试用户（用于登录）
+    print("\n👤 创建测试用户...")
+    test_users = [
+        SysUser(
+            username="admin",
+            hashed_password=get_password_hash("admin123"),
+            role="admin",
+            is_active=True
+        ),
+        SysUser(
+            username="user",
+            hashed_password=get_password_hash("user123"),
+            role="user",
+            is_active=True
+        )
+    ]
+    for user in test_users:
+        session.add(user)
+    session.commit()
+    print(f"  ✓ 创建了 {len(test_users)} 个测试用户")
+    print("    - admin/admin123 (管理员)")
+    print("    - user/user123 (普通用户)")
     
     # 3.1 创建分公司和部门
     print("\n🏢 创建分公司和部门...")
@@ -432,6 +457,7 @@ def print_summary(session):
     print_step(5, "数据统计摘要")
     
     stats = {
+        "测试用户": session.query(SysUser).count(),
         "部门": session.query(SysDepartment).count(),
         "员工": session.query(SysEmployee).count(),
         "仓库": session.query(BaseWarehouse).count(),

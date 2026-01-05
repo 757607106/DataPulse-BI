@@ -24,6 +24,7 @@ defineOptions({
 const props = withDefaults(defineProps<BaseChartProps>(), {
   width: '100%',
   height: '100%',
+  // 默认为 auto，由主题 Store 决定（支持全局切换）
   theme: 'auto',
   notMerge: false,
   lazyUpdate: false,
@@ -44,19 +45,23 @@ const chartStyle = computed(() => ({
   height: typeof props.height === 'number' ? `${props.height}px` : props.height
 }))
 
-// 获取当前主题
+// 获取当前主题（支持 prop 覆盖或全局主题 Store）
 const getCurrentTheme = (): string => {
   if (props.theme !== 'auto') {
-    return props.theme
+    return props.theme;
   }
 
-  // 检查系统主题或应用主题
-  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-  // 也可以从 Pinia store 获取应用主题设置
-  // const themeStore = useThemeStore()
-  // return themeStore.isDark ? 'dark' : 'light'
-
-  return isDark ? 'dark' : 'light'
+  // 使用全局主题 Store 优先
+  try {
+    // 延迟导入以避免循环依赖
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { useThemeStore } = require('@/stores/theme');
+    const themeStore = useThemeStore();
+    return themeStore.theme === 'dark' ? 'dark' : 'light';
+  } catch (e) {
+    const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return isDark ? 'dark' : 'light';
+  }
 }
 
 // 初始化图表
