@@ -1,4 +1,5 @@
-version: '3.8'
+# Docker Compose 配置 - 仅数据库服务
+# 后端和前端使用本地开发环境运行
 
 services:
   postgres:
@@ -13,7 +14,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     restart: unless-stopped
     networks:
       - inventory_bi_network
@@ -25,42 +25,6 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    restart: unless-stopped
-    networks:
-      - inventory_bi_network
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: inventory_bi_backend
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres123@postgres:5432/inventory_bi
-      - REDIS_URL=redis://redis:6379/0
-      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
-    ports:
-      - "8000:8000"
-    depends_on:
-      - postgres
-      - redis
-    volumes:
-      - ./backend:/app
-    restart: unless-stopped
-    networks:
-      - inventory_bi_network
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: inventory_bi_frontend
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
     restart: unless-stopped
     networks:
       - inventory_bi_network

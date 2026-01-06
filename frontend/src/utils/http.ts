@@ -42,11 +42,10 @@ http.interceptors.response.use(
       // 清除 token
       localStorage.removeItem('access_token');
       
-      // 跳转到登录页
-      ElMessage.error('登录已过期，请重新登录');
-      
-      // 避免循环跳转
+      // 避免循环跳转和重复提示
       if (window.location.pathname !== '/login') {
+        // 只在非登录页面显示错误
+        ElMessage.error('登录已过期，请重新登录');
         window.location.href = '/login';
       }
       

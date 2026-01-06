@@ -5,6 +5,9 @@ Vanna AI 服务模块 - 基于 Vanna 2.0 + 通义千问的 Text-to-SQL
 """
 import os
 import json
+import hashlib
+from datetime import datetime, date
+from decimal import Decimal
 from typing import Dict, Any, List, Optional
 import pandas as pd
 
@@ -22,6 +25,19 @@ import redis.asyncio as redis
 from loguru import logger
 
 from app.core.config import settings
+
+
+def json_serializer(obj):
+    """
+    自定义 JSON 序列化函数，处理 Decimal, datetime, date 类型
+    """
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    elif pd.isna(obj):
+        return None
+    raise TypeError(f"Type {type(obj)} not serializable")
 
 
 class VannaService:
@@ -57,9 +73,14 @@ class VannaService:
             
             logger.info(f"✅ API Key 已从环境变量读取: {dashscope_key[:10]}***")
             
-            # 初始化 Redis
-            self.redis_client = redis.from_url(settings.redis_url)
-            logger.info(f"✅ Redis 连接成功: {settings.redis_url}")
+            # 初始化 Redis（使用连接池）
+            redis_pool = redis.ConnectionPool.from_url(
+                settings.redis_url,
+                max_connections=20,
+                decode_responses=True  # 自动解码为字符串
+            )
+            self.redis_client = redis.Redis(connection_pool=redis_pool)
+            logger.info(f"✅ Redis 连接池初始化成功: {settings.redis_url}")
             
             # === 1. 配置 LLM (通义千问 - 通过 OpenAI 兼容接口) ===
             llm = OpenAILlmService(
@@ -295,7 +316,7 @@ class VannaService:
     
     async def ask_question(self, question: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        处理用户自然语言问题
+        处理用户自然语言问题（带 Redis 缓存）
         
         Args:
             question: 用户问题
@@ -305,12 +326,21 @@ class VannaService:
             {"answer_text": str, "sql": str, "chart_type": str, "data": {...}}
         """
         try:
-            # === 1. 检查缓存 ===
-            cache_key = f"ai:query:{question}:{json.dumps(context or {}, sort_keys=True)}"
-            cached = await self.redis_client.get(cache_key)
-            if cached:
-                logger.info(f"✅ 命中缓存: {question}")
-                return json.loads(cached)
+            # === 1. 生成缓存 Key（使用 MD5）===
+            question_hash = hashlib.md5(question.encode('utf-8')).hexdigest()
+            context_str = json.dumps(context or {}, sort_keys=True)
+            context_hash = hashlib.md5(context_str.encode('utf-8')).hexdigest()
+            cache_key = f"vanna_cache:{question_hash}:{context_hash}"
+            
+            # === 2. Read-Through: 检查缓存 ===
+            try:
+                cached = await self.redis_client.get(cache_key)
+                if cached:
+                    logger.info(f"🚀 Cache Hit! Key: {cache_key[:50]}...")
+                    logger.info(f"📝 问题: {question}")
+                    return json.loads(cached)
+            except Exception as e:
+                logger.warning(f"⚠️  读取缓存失败: {e}，继续执行查询")
             
             # === 2. 使用 Agent 执行查询 (Vanna 2.0) ===
             logger.info(f"🤔 处理问题: {question}")
@@ -513,12 +543,18 @@ LIMIT 5;
                 "data": {"columns": columns, "rows": rows}
             }
             
-            # === 7. 缓存 ===
-            await self.redis_client.setex(
-                cache_key,
-                3600,
-                json.dumps(response, ensure_ascii=False)
-            )
+            # === 7. Write-Through: 写入缓存 ===
+            try:
+                # 使用自定义序列化器处理 Decimal 和 datetime
+                cache_value = json.dumps(response, ensure_ascii=False, default=json_serializer)
+                await self.redis_client.setex(
+                    cache_key,
+                    300,  # 5分钟过期
+                    cache_value
+                )
+                logger.info(f"💾 缓存已写入 (TTL: 300s): {cache_key[:50]}...")
+            except Exception as e:
+                logger.warning(f"⚠️  写入缓存失败: {e}")
             
             logger.info(f"✅ 查询成功,返回 {len(rows)} 条数据")
             return response

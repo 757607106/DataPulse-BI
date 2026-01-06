@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     database_password: str = "postgres123"
 
     # Redis 配置
+    redis_host: str = "redis"  # Docker service name
+    redis_port: int = 6379
     redis_url: str = "redis://localhost:6379/0"
 
     # AI 服务配置

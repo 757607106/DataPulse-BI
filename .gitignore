@@ -88,3 +88,4 @@ Thumbs.db
 *.pyd
 .Python
 __pycache__
+backend/d93deba951d962b5/*.csv

@@ -67,13 +67,16 @@ const toggleTheme = () => {
 };
 
 // 页面加载时检查登录状态
-onMounted(() => {
+onMounted(async () => {
   // 如果有 token 但没有用户信息，尝试获取
   if (userStore.token && !userStore.username) {
-    userStore.fetchUserInfo().catch(() => {
-      // 获取失败就跳转到登录页
-      router.push('/login');
-    });
+    try {
+      await userStore.fetchUserInfo();
+    } catch (error) {
+      // 静默处理：Token 无效或过期，用户将被路由守卫重定向到登录页
+      console.warn('获取用户信息失败，可能是 Token 已过期');
+      // 不显示错误消息，因为 http 拦截器已经处理了跳转
+    }
   }
 });
 
