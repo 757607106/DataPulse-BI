@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue';
 import { useThemeStore } from '@/stores/theme';
-import { Promotion, TrendCharts, PieChart, MagicStick, ChatDotRound } from '@element-plus/icons-vue';
+import { Promotion, TrendCharts, PieChart, MagicStick, ChatDotRound, View, Document } from '@element-plus/icons-vue';
+import { ElMessage } from 'element-plus';
+import { sendMessage } from '@/api/chat';
+import type { ChatMessage, LOADING_STAGES } from '@/types/chat';
+import { convertToEChartsOption } from '@/utils/chartAdapter';
+import BaseChart from '@/components/Charts/BaseChart.vue';
 
-interface Message {
-  id: number;
-  type: 'user' | 'ai';
-  content: string;
-  timestamp: Date;
-  hasChart?: boolean;
-}
+defineOptions({
+  name: 'AnalysisPage'
+});
 
 const themeStore = useThemeStore();
 const theme = computed(() => themeStore.theme);
@@ -21,18 +22,21 @@ const suggestedQuestions = [
   { icon: ChatDotRound, text: '预测下季度销售额', color: '#8B5CF6' },
 ];
 
-const messages = ref<Message[]>([
+const messages = ref<ChatMessage[]>([
   {
     id: 1,
     type: 'ai',
-    content: '您好！我是智能进销存分析助手，可以帮您分析库存数据、生成销售报表、预测采购需求。请问有什么可以帮您的？',
+    content: '您好！我是智能进销存分析助手，基于 Vanna 2.0 + 通义千问，可以帮您分析库存数据、生成销售报表、预测采购需求。请问有什么可以帮您的？',
     timestamp: new Date(),
   },
 ]);
 
 const inputValue = ref('');
-const isTyping = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
+
+// 数据表格弹窗
+const dataDialogVisible = ref(false);
+const currentDataForDialog = ref<ChatMessage | null>(null);
 
 // 样式计算
 const bgClass = computed(() => theme.value === 'dark' ? 'bg-[#0F172A]' : 'bg-[#F8FAFC]');
@@ -70,35 +74,108 @@ const scrollToBottom = async () => {
   }
 };
 
-const handleSendMessage = (text?: string) => {
+// 加载阶段描述
+const getLoadingText = (stage?: ChatMessage['loadingStage']) => {
+  if (!stage) return 'AI 正在思考...';
+  const stages = {
+    thinking: 'AI 正在思考...',
+    generating: '生成 SQL 查询...',
+    querying: '执行查询中...',
+    done: '完成'
+  };
+  return stages[stage];
+};
+
+const handleSendMessage = async (text?: string) => {
   const messageText = text || inputValue.value;
   if (!messageText.trim()) return;
 
   // 添加用户消息
-  const userMessage: Message = {
-    id: messages.value.length + 1,
+  const userMessage: ChatMessage = {
+    id: Date.now(),
     type: 'user',
     content: messageText,
     timestamp: new Date(),
   };
   messages.value.push(userMessage);
   inputValue.value = '';
-  isTyping.value = true;
   scrollToBottom();
 
-  // 模拟 AI 响应
-  setTimeout(() => {
-    const aiMessage: Message = {
-      id: messages.value.length + 1,
+  // 添加 AI 加载消息
+  const aiLoadingMessage: ChatMessage = {
+    id: Date.now() + 1,
+    type: 'ai',
+    content: '',
+    timestamp: new Date(),
+    loading: true,
+    loadingStage: 'thinking',
+  };
+  messages.value.push(aiLoadingMessage);
+  scrollToBottom();
+
+  try {
+    // 模拟加载阶段
+    setTimeout(() => {
+      aiLoadingMessage.loadingStage = 'generating';
+    }, 800);
+
+    setTimeout(() => {
+      aiLoadingMessage.loadingStage = 'querying';
+    }, 1600);
+
+    // 调用真实 API
+    const response = await sendMessage({ question: messageText });
+
+    // 移除加载消息
+    const loadingIndex = messages.value.findIndex(m => m.id === aiLoadingMessage.id);
+    if (loadingIndex !== -1) {
+      messages.value.splice(loadingIndex, 1);
+    }
+
+    // 添加 AI 响应消息
+    const aiMessage: ChatMessage = {
+      id: Date.now() + 2,
       type: 'ai',
-      content: generateAIResponse(messageText),
+      content: response.answer_text,
       timestamp: new Date(),
-      hasChart: messageText.includes('销售') || messageText.includes('趋势'),
+      sql: response.sql,
+      data: response.data,
+      chartType: response.chart_type,
     };
     messages.value.push(aiMessage);
-    isTyping.value = false;
     scrollToBottom();
-  }, 1500);
+  } catch (error: any) {
+    // 移除加载消息
+    const loadingIndex = messages.value.findIndex(m => m.id === aiLoadingMessage.id);
+    if (loadingIndex !== -1) {
+      messages.value.splice(loadingIndex, 1);
+    }
+
+    // 显示错误消息
+    const errorMessage: ChatMessage = {
+      id: Date.now() + 2,
+      type: 'ai',
+      content: `抱歉，处理您的问题时出现错误：${error.response?.data?.detail || error.message || '未知错误'}。请稍后重试或换个问题试试。`,
+      timestamp: new Date(),
+    };
+    messages.value.push(errorMessage);
+    scrollToBottom();
+
+    ElMessage.error('请求失败，请稍后重试');
+  }
+};
+
+// 查看数据表格
+const viewDataTable = (message: ChatMessage) => {
+  currentDataForDialog.value = message;
+  dataDialogVisible.value = true;
+};
+
+// 获取图表 Option
+const getChartOption = (message: ChatMessage) => {
+  if (!message.data || !message.chartType) return null;
+  const isDark = theme.value === 'dark';
+  return convertToEChartsOption(message.data, message.chartType, isDark);
 };
 
 const handleKeyPress = (e: KeyboardEvent) => {
@@ -110,6 +187,14 @@ const handleKeyPress = (e: KeyboardEvent) => {
 
 const formatTime = (date: Date) => {
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+};
+
+const formatAnswerText = (text: string) => {
+  // 简单的 Markdown 支持: 换行、加粗、代码
+  return text
+    .replace(/\n/g, '<br>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`(.*?)`/g, '<code class="px-1 py-0.5 bg-slate-700 rounded text-xs">$1</code>');
 };
 </script>
 
@@ -184,7 +269,21 @@ const formatTime = (date: Date) => {
 
           <!-- Message Content -->
           <div :class="['flex-1 max-w-2xl', message.type === 'user' ? 'flex justify-end' : '']">
+            <!-- 加载状态 -->
+            <div v-if="message.loading" :class="['border rounded-xl p-4', cardBg]">
+              <div class="flex items-center gap-3">
+                <div class="flex gap-2">
+                  <div class="w-2 h-2 bg-cyan-500 rounded-full animate-bounce"></div>
+                  <div class="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                  <div class="w-2 h-2 bg-cyan-500 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
+                </div>
+                <span :class="['text-sm', textSecondary]">{{ getLoadingText(message.loadingStage) }}</span>
+              </div>
+            </div>
+
+            <!-- 正常消息 -->
             <div
+              v-else
               :class="[
                 'rounded-xl p-4',
                 message.type === 'ai'
@@ -194,32 +293,76 @@ const formatTime = (date: Date) => {
                   : 'bg-gradient-to-r from-cyan-600 to-blue-600'
               ]"
             >
-              <p :class="[
-                'text-sm leading-relaxed whitespace-pre-wrap',
-                message.type === 'user' ? 'text-white' : textPrimary
-              ]">
-                {{ message.content }}
-              </p>
+              <!-- 文本内容 -->
+              <div 
+                :class="[
+                  'text-sm leading-relaxed',
+                  message.type === 'user' ? 'text-white' : textPrimary
+                ]"
+                v-html="formatAnswerText(message.content)"
+              />
 
-              <!-- Chart Placeholder -->
+              <!-- SQL 折叠面板 -->
+              <el-collapse v-if="message.sql" class="mt-4" accordion>
+                <el-collapse-item name="sql">
+                  <template #title>
+                    <div :class="['flex items-center gap-2 text-xs', textSecondary]">
+                      <el-icon :size="14"><Document /></el-icon>
+                      <span>查看 SQL 查询</span>
+                    </div>
+                  </template>
+                  <pre :class="[
+                    'text-xs p-3 rounded-lg overflow-x-auto',
+                    theme === 'dark' ? 'bg-slate-900 text-green-400' : 'bg-slate-50 text-slate-700'
+                  ]">{{ message.sql }}</pre>
+                </el-collapse-item>
+              </el-collapse>
+
+              <!-- 图表区域 -->
               <div
-                v-if="message.hasChart"
+                v-if="message.data && message.chartType && message.chartType !== 'table'"
                 :class="[
                   'mt-4 p-4 rounded-lg border',
                   theme === 'dark' ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-200'
                 ]"
               >
-                <div :class="['flex items-center gap-2 text-xs mb-2', textSecondary]">
-                  <el-icon :size="14"><TrendCharts /></el-icon>
-                  <span>数据可视化</span>
+                <div :class="['flex items-center justify-between mb-3']">
+                  <div :class="['flex items-center gap-2 text-xs', textSecondary]">
+                    <el-icon :size="14"><TrendCharts /></el-icon>
+                    <span>数据可视化</span>
+                  </div>
+                  <el-button 
+                    size="small" 
+                    :icon="View" 
+                    @click="viewDataTable(message)"
+                    text
+                  >
+                    查看原始数据
+                  </el-button>
                 </div>
-                <div :class="['h-40 flex items-center justify-center text-sm', textSecondary]">
-                  [图表展示区域]
-                </div>
+                <BaseChart 
+                  :option="getChartOption(message)!"
+                  height="300px"
+                />
+              </div>
+
+              <!-- 表格类型直接显示按钮 -->
+              <div
+                v-if="message.data && message.chartType === 'table'"
+                class="mt-4"
+              >
+                <el-button 
+                  type="primary"
+                  :icon="View" 
+                  @click="viewDataTable(message)"
+                  size="small"
+                >
+                  查看数据表格
+                </el-button>
               </div>
 
               <p :class="[
-                'text-xs mt-2',
+                'text-xs mt-3',
                 message.type === 'ai'
                   ? (theme === 'dark' ? 'text-slate-500' : 'text-slate-400')
                   : 'text-cyan-100'
@@ -230,19 +373,7 @@ const formatTime = (date: Date) => {
           </div>
         </div>
 
-        <!-- Typing Indicator -->
-        <div v-if="isTyping" class="flex gap-4">
-          <div class="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-            <el-icon :size="18" class="text-white"><MagicStick /></el-icon>
-          </div>
-          <div :class="['border rounded-xl p-4', cardBg]">
-            <div class="flex gap-2">
-              <div class="w-2 h-2 bg-slate-500 rounded-full animate-bounce"></div>
-              <div class="w-2 h-2 bg-slate-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
-              <div class="w-2 h-2 bg-slate-500 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
-            </div>
-          </div>
-        </div>
+        <!-- Typing Indicator - 已移除，由 loading 消息替代 -->
       </div>
     </div>
 
@@ -275,6 +406,34 @@ const formatTime = (date: Date) => {
         </p>
       </div>
     </div>
+
+    <!-- 数据表格弹窗 -->
+    <el-dialog
+      v-model="dataDialogVisible"
+      title="原始数据"
+      width="80%"
+      :append-to-body="true"
+    >
+      <el-table
+        v-if="currentDataForDialog?.data"
+        :data="currentDataForDialog.data.rows"
+        stripe
+        border
+        max-height="500"
+        style="width: 100%"
+      >
+        <el-table-column
+          v-for="col in currentDataForDialog.data.columns"
+          :key="col"
+          :prop="col"
+          :label="col"
+          :min-width="120"
+        />
+      </el-table>
+      <template #footer>
+        <el-button @click="dataDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 

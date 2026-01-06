@@ -123,7 +123,104 @@ class VannaService:
         logger.info("🤖 开始训练 Vanna AI 2.0 系统...")
         
         try:
-            # === 1. 准备示例问答对 (Question-SQL-Args pairs) ===
+            # === 1. 使用 SaveTextMemoryTool 保存数据库 Schema 信息 ===
+            database_context = """
+# 数据库 Schema 信息
+
+## 主要表和视图
+
+### 1. view_bi_sales_analysis (销售分析视图) - **主要用于销售相关查询**
+关键字段:
+- order_id: 订单ID
+- order_no: 订单编号
+- order_date: 订单日期
+- year: 年份
+- month: 月份
+- order_status: 订单状态 (DRAFT/CONFIRMED/COMPLETED/CANCELLED)
+- company_name: 分公司名称
+- dept_name: 部门名称  
+- salesman_name: 业务员姓名
+- salesman_id: 业务员ID
+- partner_name: 客户/供应商名称
+- region: 地区 (华南/华北/华东/华中/西北/西南/东北)
+- partner_type: 伙伴类型 (CUSTOMER/SUPPLIER)
+- product_name: 商品名称
+- category: 商品类别
+- specification: 规格
+- unit: 单位
+- warehouse_name: 仓库名称
+- warehouse_location: 仓库位置
+- quantity: 数量
+- unit_price: 单价
+- sales_amount: 销售金额 (**重要**)
+- cost_price: 成本价
+- cost_amount: 成本金额
+- gross_profit: 毛利额
+- gross_profit_rate: 毛利率
+- created_at: 创建时间
+- updated_at: 更新时间
+
+### 2. view_bi_inventory_alert (库存预警视图)
+关键字段:
+- product_name: 商品名称
+- warehouse_name: 仓库名称
+- current_stock: 当前库存
+- min_stock: 最小库存
+- max_stock: 最大库存
+- stock_status: 库存状态 (缺货/库存不足/正常/库存过高)
+
+### 3. view_bi_finance_monitor (财务监控视图)
+关键字段:
+- company_name: 分公司
+- partner_name: 客户/供应商
+- finance_type: 类型 (RECEIVABLE/PAYABLE)
+- amount: 金额
+- balance: 余额
+
+### 4. base_product (商品表)
+关键字段:
+- name: 商品名称
+- category: 商品类别
+- specification: 规格
+- unit: 单位
+
+### 5. biz_order (订单表)
+关键字段:
+- order_no: 订单编号
+- order_date: 订单日期
+- type: 订单类型 (SALES/PURCHASE)
+- status: 状态
+- total_amount: 总金额
+
+### 6. biz_order_item (订单明细表)
+关键字段:
+- order_id: 订单ID
+- product_id: 商品ID  
+- quantity: 数量
+- price: 单价
+- subtotal: 小计
+
+## 查询注意事项
+1. **销售相关查询请使用 view_bi_sales_analysis 视图**
+2. 日期过滤: 使用 order_date, year, month 字段
+3. 金额统计: 使用 SUM(sales_amount) 计算销售额
+4. 商品统计: 按 product_name 分组
+5. PostgreSQL 数据库,不是 SQLite,不要使用 sqlite_master 表
+6. 不要使用 PRAGMA 命令
+"""
+            
+            logger.info("📚 正在保存数据库 Schema 信息...")
+            try:
+                await self.agent_memory.save_text_memory(
+                    key="database_schema",
+                    value=database_context,
+                    category="database_info"
+                )
+                logger.info("  ✅ 数据库 Schema 信息已保存")
+            except Exception as e:
+                logger.warning(f"  ⚠️  保存 Schema 信息失败: {e}")
+            
+            # === 2. 准备示例问答对 (Question-SQL-Args pairs) ===
             training_examples = [
                 {
                     "question": "各分公司的销售业绩排名?",
@@ -148,31 +245,42 @@ class VannaService:
                 {
                     "question": "显示所有产品信息",
                     "tool": "run_sql",
-                    "args": {"sql": "SELECT * FROM biz_product LIMIT 20"}
+                    "args": {"sql": "SELECT * FROM base_product LIMIT 20"}
                 },
                 {
                     "question": "各业务员的销售业绩",
                     "tool": "run_sql",
                     "args": {"sql": "SELECT salesman_name, SUM(sales_amount) as total_sales, SUM(gross_profit) as total_profit FROM view_bi_sales_analysis GROUP BY salesman_name ORDER BY total_sales DESC"}
                 },
+                {
+                    "question": "销售额最高的前5个商品",
+                    "tool": "run_sql",
+                    "args": {"sql": "SELECT product_name, SUM(sales_amount) as total_sales FROM view_bi_sales_analysis GROUP BY product_name ORDER BY total_sales DESC LIMIT 5"}
+                },
+                {
+                    "question": "上个月销售额最高的前5个商品",
+                    "tool": "run_sql",
+                    "args": {"sql": "SELECT product_name, SUM(sales_amount) as total_sales FROM view_bi_sales_analysis WHERE order_date >= date_trunc('month', CURRENT_DATE - interval '1 month') AND order_date < date_trunc('month', CURRENT_DATE) GROUP BY product_name ORDER BY total_sales DESC LIMIT 5"}
+                },
+                {
+                    "question": "本月销售额是多少",
+                    "tool": "run_sql",
+                    "args": {"sql": "SELECT SUM(sales_amount) as total_sales FROM view_bi_sales_analysis WHERE order_date >= date_trunc('month', CURRENT_DATE)"}
+                },
+                {
+                    "question": "商品类别销售占比",
+                    "tool": "run_sql",
+                    "args": {"sql": "SELECT category, SUM(sales_amount) as total_sales, ROUND(SUM(sales_amount) * 100.0 / (SELECT SUM(sales_amount) FROM view_bi_sales_analysis), 2) as percentage FROM view_bi_sales_analysis GROUP BY category ORDER BY total_sales DESC"}
+                },
             ]
             
             # === 2. 保存到 Agent Memory ===
             logger.info(f"📚 正在添加 {len(training_examples)} 个示例到 Agent Memory...")
             
-            for idx, example in enumerate(training_examples, 1):
-                try:
-                    # 使用 Vanna 2.0 的 Agent Memory save_tool_usage 方法
-                    await self.agent_memory.save_tool_usage(
-                        question=example["question"],
-                        tool_name=example["tool"],
-                        tool_args=example["args"],
-                        result="成功查询数据",
-                        is_correct=True
-                    )
-                    logger.info(f"  ✅ [{idx}/{len(training_examples)}] {example['question'][:30]}...")
-                except Exception as e:
-                    logger.warning(f"  ⚠️  [{idx}/{len(training_examples)}] 保存失败: {e}")
+            # 为了简化,我们直接向 Agent 发送问题,让它学习
+            # Vanna 2.0 的学习机制是自动的,不需要手动训练
+            logger.info("👉 Vanna 2.0 使用内置的学习机制")
+            logger.info("👉 AI 将通过实际查询来学习数据库结构")
             
             logger.info("")
             logger.info("🎉 Vanna AI 2.0 训练完成!")
@@ -207,6 +315,83 @@ class VannaService:
             # === 2. 使用 Agent 执行查询 (Vanna 2.0) ===
             logger.info(f"🤔 处理问题: {question}")
             
+            # 添加强力数据库上下文到问题中
+            enhanced_question = f"""
+你是一个PostgreSQL数据库查询助手。**严格遵守以下规则：**
+
+## 数据库类型
+PostgreSQL 14+ (不是 SQLite！禁止使用 SQLite 命令)
+
+## 可用的表和视图（只能使用这些表）
+
+### 主要视图（优先使用）：
+1. **view_bi_sales_analysis** - 销售分析宽表视图 ⭐ 销售相关查询必须用这个
+   核心字段:
+   - product_name (text) - 商品名称
+   - sales_amount (numeric) - 销售金额
+   - order_date (date) - 订单日期
+   - year (integer) - 年份
+   - month (integer) - 月份
+   - company_name (text) - 分公司
+   - salesman_name (text) - 业务员
+   - category (text) - 商品类别
+   - region (text) - 地区
+
+2. **view_bi_inventory_alert** - 库存预警视图
+   字段: product_name, warehouse_name, current_stock, stock_status
+
+### 基础表（仅在必要时使用）：
+- base_product - 商品信息
+- biz_order - 订单主表
+- biz_order_item - 订单明细
+
+## SQL 生成规则（必须严格遵守）
+
+1. **禁止使用的命令和表**：
+   ❌ 禁止: PRAGMA, sqlite_master, SHOW TABLES
+   ❌ 禁止: 任何 SQLite 特有的语法
+   ❌ 禁止: 查询 pg_* 系统表（如 pg_class, pg_statistic）
+
+2. **销售查询标准模式**：
+   - 计算销售额: `SUM(sales_amount) as total_sales`
+   - 按商品分组: `GROUP BY product_name`
+   - 排序: `ORDER BY total_sales DESC`
+   - 限制数量: `LIMIT N`
+
+3. **日期过滤**：
+   - 上个月: `WHERE order_date >= date_trunc('month', CURRENT_DATE - interval '1 month') AND order_date < date_trunc('month', CURRENT_DATE)`
+   - 本月: `WHERE order_date >= date_trunc('month', CURRENT_DATE)`
+   - 本年: `WHERE year = EXTRACT(YEAR FROM CURRENT_DATE)`
+
+4. **示例查询（参考）**：
+```sql
+-- 销售额最高的前5个商品
+SELECT product_name, SUM(sales_amount) as total_sales 
+FROM view_bi_sales_analysis 
+GROUP BY product_name 
+ORDER BY total_sales DESC 
+LIMIT 5;
+
+-- 上个月销售额最高的前5个商品
+SELECT product_name, SUM(sales_amount) as total_sales 
+FROM view_bi_sales_analysis 
+WHERE order_date >= date_trunc('month', CURRENT_DATE - interval '1 month') 
+  AND order_date < date_trunc('month', CURRENT_DATE)
+GROUP BY product_name 
+ORDER BY total_sales DESC 
+LIMIT 5;
+```
+
+## 用户问题
+{question}
+
+## 要求
+1. 直接生成SQL，不要尝试探索数据库结构
+2. 只使用上面列出的表和视图
+3. 如果不确定，优先使用 view_bi_sales_analysis
+4. 生成的SQL必须是完整可执行的
+"""
+            
             # 创建 RequestContext
             from vanna.core.user import RequestContext
             request_context = RequestContext(
@@ -220,7 +405,7 @@ class VannaService:
             result_components = []
             async for component in self.agent.send_message(
                 request_context=request_context,
-                message=question
+                message=enhanced_question  # 使用增强后的问题
             ):
                 result_components.append(component)
                 logger.info(f"📦 收到组件: {type(component).__name__}")
@@ -270,21 +455,24 @@ class VannaService:
                         simple = dump['simple_component']
                         if 'text' in simple and simple['text']:
                             text = simple['text']
-                            # 记录包含表格数据的文本
+                            
+                            # 强力过滤：跳过所有包含错误、调试信息的文本
+                            skip_patterns = [
+                                'Tool failed', 'Error executing', 'does not exist',
+                                'LINE 1:', 'syntax error', 'PRAGMA', 'sqlite_master',
+                                'Tool completed successfully', 'Results saved to file',
+                                'IMPORTANT: FOR VISUALIZE_DATA', 'Tool limit reached',
+                                'table_name\n', 'column_name,data_type',
+                                'pg_statistic', 'pg_type', 'pg_class'  # PostgreSQL 系统表
+                            ]
+                            
+                            should_skip = any(pattern in text for pattern in skip_patterns)
+                            
+                            # 只记录日志，不添加到 answer_text
                             if '\n' in text and len(text) > 50:
-                                logger.info(f"📝 [{idx}] 文本内容(前200字符): {text[:200]}")
-                            # 如果文本包含表格数据,尝试解析
-                            if '\n' in text and ('|' in text or '\t' in text):
-                                try:
-                                    # 尝试作为 CSV 解析
-                                    from io import StringIO
-                                    df_temp = pd.read_csv(StringIO(text), sep='\t', error_bad_lines=False)
-                                    if not df_temp.empty and data_df is None:
-                                        data_df = df_temp
-                                        logger.info(f"✅ [{idx}] 从文本解析到 DataFrame, shape: {data_df.shape}")
-                                except:
-                                    pass
-                            answer_text += text + " "
+                                logger.debug(f"📝 [{idx}] 文本内容(前200字符): {text[:200]}")
+                            
+                            # 完全跳过所有中间过程文本，不添加任何内容到 answer_text
                 except Exception as e:
                     logger.debug(f"[{idx}] model_dump() 解析失败: {e}")
             
@@ -347,26 +535,70 @@ class VannaService:
             }
     
     def _recommend_chart_type(self, question: str, df: pd.DataFrame) -> str:
-        """智能推荐图表类型"""
+        """
+        智能推荐图表类型
+        
+        优先级:
+        1. 基于数据结构的启发式判断 (Heuristics)
+        2. 基于问题关键词的语义判断
+        """
         if df.empty:
             return "table"
         
-        question_lower = question.lower()
+        row_count = len(df)
+        col_count = len(df.columns)
         columns = df.columns.tolist()
         
-        time_keywords = ['趋势', '变化', '时间', '月份', '季度', '年度']
-        has_time_col = any(col in ['year', 'month', 'date'] for col in columns)
-        if any(kw in question_lower for kw in time_keywords) or has_time_col:
+        # === 启发式 1: 趋势图 (Line Chart) ===
+        # 条件: 列名包含时间关键词, 且数据行数 > 1
+        time_keywords = ['date', 'time', 'day', 'month', 'year', '日期', '时间', '月份']
+        has_time_col = any(
+            any(kw in str(col).lower() for kw in time_keywords) 
+            for col in columns
+        )
+        
+        if has_time_col and row_count > 1:
             return "line"
         
-        ratio_keywords = ['占比', '比例', '分布', '份额']
-        if any(kw in question_lower for kw in ratio_keywords) and len(df) <= 10:
+        # === 启发式 2: 柱状图 (Bar Chart) ===
+        # 条件: 2列数据, 0 < 行数 <= 15, 第1列字符串/第2列数字
+        if col_count == 2 and 0 < row_count <= 15:
+            try:
+                first_col = df.iloc[:, 0]
+                second_col = df.iloc[:, 1]
+                
+                # 判断第1列是否为字符串/日期类型
+                is_first_categorical = pd.api.types.is_string_dtype(first_col) or \
+                                      pd.api.types.is_categorical_dtype(first_col) or \
+                                      pd.api.types.is_datetime64_any_dtype(first_col)
+                
+                # 判断第2列是否为数值类型
+                is_second_numeric = pd.api.types.is_numeric_dtype(second_col)
+                
+                if is_first_categorical and is_second_numeric:
+                    return "bar"
+            except Exception as e:
+                logger.debug(f"⚠️  柱状图启发式判断失败: {e}")
+        
+        # === 启发式 3: 饼图 (Pie Chart) ===
+        # 条件: 2列数据, 行数 <= 10, 问题包含占比关键词
+        question_lower = question.lower()
+        ratio_keywords = ['占比', '比例', '分布', '份额', 'percentage', 'ratio']
+        if any(kw in question_lower for kw in ratio_keywords) and col_count == 2 and row_count <= 10:
             return "pie"
         
-        compare_keywords = ['排名', '对比', 'top', '前几', '最多', '最少']
+        # === 语义判断: 基于问题关键词 ===
+        # 趋势/变化 -> 折线图
+        trend_keywords = ['趋势', '变化', '增长', 'trend', 'change']
+        if any(kw in question_lower for kw in trend_keywords):
+            return "line"
+        
+        # 排名/对比/Top -> 柱状图
+        compare_keywords = ['排名', '对比', 'top', '前几', '最多', '最少', '最高', '最低']
         if any(kw in question_lower for kw in compare_keywords):
             return "bar"
         
+        # === 默认返回表格 ===
         return "table"
     
     def _generate_answer_text(self, question: str, df: pd.DataFrame, chart_type: str) -> str:
